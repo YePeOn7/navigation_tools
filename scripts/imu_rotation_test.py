@@ -139,8 +139,6 @@ def setOrientation(angleRef):
         print(f"{speedW:.2f} {w:.2f}")
 
 while not rospy.is_shutdown():
-    # w = updateOrientation()
-    # print(type(rotationSp))
     if mode == 0: 
         setOrientation(rotationSp)
     elif mode == 1:
