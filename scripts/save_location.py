@@ -23,15 +23,15 @@ class logger():
         self.filePath = f"{self.fileDirPath}/{self.fileName}"
         if(not os.path.exists(self.fileDirPath)):
             os.makedirs(self.fileDirPath)
-        self.clear()
+        self.write('', end='')
         print(f"Waypoint data will be saved on this path:")
         print(self.filePath)
         print("")
 
-    def write(self, data):
+    def write(self, data, mode = 'a', end='\n'):
         data = str(data)
-        with open(self.filePath, mode = 'a') as f:
-            f.write(f"{data}\n")
+        with open(self.filePath, mode = mode) as f:
+            f.write(f"{data}{end}")
 
     def clear(self):
         with open(self.filePath, mode = 'w') as f:

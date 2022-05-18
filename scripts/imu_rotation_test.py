@@ -8,21 +8,23 @@ import math
 import time
 
 rospy.init_node("imu_rotation_test")
-referenceFrame = "/map"
+referenceFrame = "/odom"
 robotBaseFrame = "/base_footprint"
-mode = int(sys.argv[1])
-rotationSp = float(sys.argv[2])
+# mode = int(sys.argv[1])
+# rotationSp = float(sys.argv[2])
 
 orientation = 0
 tfListener = tf.TransformListener()
 
 last_angle = 0
 error_angle = 0
-kp = 0.1
-ki = 0.02
-kd = 0.1
+kp = 0.05
+ki = 0.005
+kd = 0.01
 I = 0
 last_error = 0
+
+pidTime = 0
 
 def setSpeed(x, y, w):
     pass
@@ -52,6 +54,7 @@ def pid(sp, current, dt, min, max, th_I_top, th_I_bottom):
     global I
     global last_error
 
+    I_limiter_gain = 0.8
     error = getAngleError(sp, current)
 
     P = kp * error
@@ -61,8 +64,8 @@ def pid(sp, current, dt, min, max, th_I_top, th_I_bottom):
         I = 0
     d = kd * (error - last_error) 
 
-    if I > max: I = max
-    elif I < min: I = min
+    if I > I_limiter_gain * max: I = I_limiter_gain * max
+    elif I < I_limiter_gain * min: I = I_limiter_gain * min
 
     PID = P + I + d
 
@@ -77,6 +80,8 @@ def pidMoveRotate(sp, current, dt, min, max, th_I_top, th_I_bottom):
     global I
     global last_error
 
+    I_limiter_gain = 0.8
+
     error = sp - current
 
     P = kp * error
@@ -86,8 +91,8 @@ def pidMoveRotate(sp, current, dt, min, max, th_I_top, th_I_bottom):
         I = 0
     d = kd * (error - last_error) 
 
-    if I > max: I = max
-    elif I < min: I = min
+    if I > I_limiter_gain * max: I = I_limiter_gain * max
+    elif I < I_limiter_gain * min: I = I_limiter_gain * min
 
     PID = P + I + d
 
@@ -98,7 +103,7 @@ def pidMoveRotate(sp, current, dt, min, max, th_I_top, th_I_bottom):
 
     return PID
 
-def moveRotate(angleRef):
+def moveRotate(angleRef, maxSpeed = 1, timeOut = 5):
     currentRotation = 0
     last_w = 0
     velPub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
@@ -117,35 +122,83 @@ def moveRotate(angleRef):
         last_w = w
 
         current_time = time.time()
-        speedW = pidMoveRotate(angleRef, currentRotation, current_time - last_time, -1, 1, 10, 0.01)
+        speedW = pidMoveRotate(angleRef, currentRotation, current_time - last_time, -maxSpeed, maxSpeed, 10, 0.01)
         last_time = current_time
 
         twistData.angular.z = speedW
         velPub.publish(twistData)
-        print(f"{speedW:.2f} {w:.2f} {currentRotation:.2f}")
+        print(f"speed: {speedW:.2f} sp angle: {angleRef:.2f} Rotation: {currentRotation:.2f}")
 
-def setOrientation(angleRef):
+        if abs(currentRotation - angleRef) < 0.5:
+            if time.time() - pidTime > timeOut:
+                break
+        else:
+            pidTime = time.time()
+
+        time.sleep(0.02)
+
+def setOrientation(angleRef, maxSpeed = 1, timeOut = 5):
     last_time = time.time()
     velPub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
     twistData = Twist()
     while not rospy.is_shutdown():
         w,_ = updateOrientation()
         current_time = time.time()
-        speedW = pid(angleRef, w, current_time - last_time, -1, 1, 10, 0.01)
+        speedW = pid(angleRef, w, current_time - last_time, -maxSpeed, maxSpeed, 10, 0.01)
         last_time = current_time
 
         twistData.angular.z = speedW
         velPub.publish(twistData)
-        print(f"{speedW:.2f} {w:.2f}")
+        print(f"Speed: {speedW:.2f} Current angle: {w:.2f}")
+
+        if abs(w - angleRef) < 0.5:
+            if time.time() - pidTime > timeOut:
+                break
+        else:
+            pidTime = time.time()
+
+        time.sleep(0.02)
+
+state = 0
 
 while not rospy.is_shutdown():
-    if mode == 0: 
-        setOrientation(rotationSp)
-    elif mode == 1:
-        moveRotate(rotationSp)
-    else:
-        print("arg0: mode, arg1: reference angle")
-        print("mode option:")
-        print("0: set orientation")
-        print("1: rotate with specific angle")
-        break
+    if state == 0:
+        print("=== Mode ===")
+        print("0: Exit")
+        print("1: Set Orientation")
+        print("2: Rotate")
+        mode = input("Select Mode: ")
+
+        if mode == "0":
+            print("Bye...")
+            break
+        if mode == "1":
+            spOrientation = float(input("Orientation (range from -180 to 180): "))
+            maxSpeed = float(input("Rotation speed: "))
+            state = 1
+        elif mode == "2":
+            numberOfRotation = float(input("Number of rotation: "))
+            maxSpeed = float(input("Rotation speed: "))
+            state = 2
+
+    elif state == 1:
+        setOrientation(spOrientation, maxSpeed)
+        print("Done!!!\n")
+        state = 0
+
+    elif state == 2:
+        moveRotate(numberOfRotation*360, maxSpeed)
+        print("Done!!!\n")
+        state = 0
+
+
+    # if mode == 0: 
+    #     setOrientation(rotationSp)
+    # elif mode == 1:
+    #     moveRotate(rotationSp)
+    # else:
+    #     print("arg0: mode, arg1: reference angle")
+    #     print("mode option:")
+    #     print("0: set orientation")
+    #     print("1: rotate with specific angle")
+    #     break

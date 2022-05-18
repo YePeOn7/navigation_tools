@@ -22,7 +22,6 @@ def callbackAMCLUpdate(msgs:PoseWithCovarianceStamped):
     covarianceSum = rms(covariance)
     needCalibratePositionStatus = covarianceSum > covarianceTh
     
-
 def callbackParticlecloudUpdate(msgs:PoseArray):
     global numberOfPoseArray
     numberOfPoseArray = len(msgs.poses)
