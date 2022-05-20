@@ -167,7 +167,7 @@ catkin_install_python(PROGRAMS
   scripts/calib_localization.py
   scripts/check_amcl.py
   scripts/check_costmap.py
-  scripts/imu_rotation_test.py
+  scripts/robot_test.py
   scripts/save_location.py
   scripts/loop_navigate.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
