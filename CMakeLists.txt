@@ -170,6 +170,7 @@ catkin_install_python(PROGRAMS
   scripts/robot_test.py
   scripts/save_location.py
   scripts/loop_navigate.py
+  scripts/sensor_corrector.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

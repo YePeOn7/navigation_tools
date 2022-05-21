@@ -46,7 +46,7 @@ class logger():
 
 settings = termios.tcgetattr(sys.stdin)
 def getKey(key_timeout):
-    tty.setraw(sys.stdin)
+    tty.setraw(sys.stdin.fileno())
     rlist, _, _ = select.select([sys.stdin], [], [], key_timeout)
     if rlist:
         key = sys.stdin.read(1)
