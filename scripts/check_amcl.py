@@ -6,6 +6,8 @@ import sys, select, termios, tty
 import tf
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from std_srvs.srv import Empty
+import dynamic_reconfigure.client
+
 import math
 
 rospy.init_node("check_amcl")
@@ -18,6 +20,7 @@ amclPose2D = [0,0,0]
 tfListener = tf.TransformListener()
 referenceFrame = "map"
 robotBaseFrame = "base_footprint"
+dynamicReconfigureClient = dynamic_reconfigure.client.Client("amcl")
 
 def getKey(key_timeout):
     tty.setraw(sys.stdin.fileno())
@@ -35,6 +38,10 @@ def rms(data):
             data[i] = -data[i]
     
     return np.mean(data)
+
+def clearCostmap():
+    clearCostmapService = rospy.ServiceProxy("move_base/clear_costmaps", Empty)
+    clearCostmapService()
 
 def callbackAMCLUpdate(msgs:PoseWithCovarianceStamped):
     global needCalibratePositionStatus
@@ -90,8 +97,6 @@ def reinitPose(covLin, covRot):
                     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
                     0.0, 0.0, 0.0, 0.0, 0.0, covRot]
 
-    # x = amclPose.pose.pose.position.x
-    # x = amclPose.pose.pose.position.x
     [x, y, w] = getTfTransformPose2D(referenceFrame, robotBaseFrame)
     q = quaternion_from_euler(0,0,math.radians(w))
 
@@ -127,7 +132,11 @@ def showOption():
     print("2: amcl update with rotation covariance 0.5")
     print("3: amcl update with custom covariance")
     print("4: monitorting amcl vs map->base_link transform")
-    print("5: No Motion Update")
+    print("5: Single No Motion Update")
+    print("6: Loop No Motion Update")
+    print("7: Update alpha1 and alpha2: 0.1")
+    print("8: Update alpha1 and alpha2: 0.0")
+    print("9: Clear costmap")
 
 covarianceTh = rospy.get_param("~covariance_th", 0.2)
 pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
@@ -164,7 +173,26 @@ while not rospy.is_shutdown():
     elif(key == "5"):
         print("Peforming AMCL no motion Update......")
         amclNoMotionUpdate()
+    elif(key == "6"):
+        loopNumber = int(input("Number of loops: "))
+        for i in range(loopNumber):
+            print("peform AMCL No motion Update %d"%(i))
+            amclNoMotionUpdate()
+            time.sleep(0.1)
+    elif(key == '7'):
+        params  = {"odom_alpha1": 0.1, "odom_alpha2": 0.1}
+        dynamicReconfigureClient.update_configuration(params)
+        print("odom_alpha1 and odom_alpha2 have been updated to 0.1")
+    elif(key == '8'):
+        params  = {"odom_alpha1": 0.0, "odom_alpha2": 0.0}
+        dynamicReconfigureClient.update_configuration(params)
+        print("odom_alpha1 and odom_alpha2 have been updated to 0.0")
+    elif(key == "9"):
+        clearCostmap()
+        
     elif (key == '\x03' or '0'):
+        print("byeee....")
+        # print(f"{key!r}")
         break
 
     showOption()

@@ -1,6 +1,5 @@
+
 import sys, select, termios, tty
-import time
-import rospy
 
 def getKey(key_timeout):
     tty.setraw(sys.stdin.fileno())
@@ -13,11 +12,9 @@ def getKey(key_timeout):
     return key
 
 settings = termios.tcgetattr(sys.stdin)
-rospy.init_node("test")
-
-while not rospy.is_shutdown():
+while 1:
     key = getKey(None)
-    print(key)
+    print(type(key))
 
     if (key == '\x03'):
         break
