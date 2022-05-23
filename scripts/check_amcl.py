@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import time
 import rospy
 from geometry_msgs.msg import PoseWithCovarianceStamped, PoseArray
@@ -19,7 +20,7 @@ amclPose = PoseWithCovarianceStamped()
 amclPose2D = [0,0,0]
 tfListener = tf.TransformListener()
 referenceFrame = "map"
-robotBaseFrame = "base_footprint"
+robotBaseFrame = "robot_footprint"
 dynamicReconfigureClient = dynamic_reconfigure.client.Client("amcl")
 
 def getKey(key_timeout):
@@ -43,7 +44,7 @@ def clearCostmap():
     clearCostmapService = rospy.ServiceProxy("move_base/clear_costmaps", Empty)
     clearCostmapService()
 
-def callbackAMCLUpdate(msgs:PoseWithCovarianceStamped):
+def callbackAMCLUpdate(msgs):
     global needCalibratePositionStatus
     global covarianceSum
     global amclPose
@@ -63,7 +64,7 @@ def callbackAMCLUpdate(msgs:PoseWithCovarianceStamped):
     covarianceSum = rms(covariance)
     needCalibratePositionStatus = covarianceSum > covarianceTh
     
-def callbackParticlecloudUpdate(msgs:PoseArray):
+def callbackParticlecloudUpdate(msgs):
     global numberOfPoseArray
     numberOfPoseArray = len(msgs.poses)
   
@@ -164,8 +165,8 @@ while not rospy.is_shutdown():
         print("Updating initpose with covariannce linear: 1.5 Rotation: 0.5")
         reinitPose(1.5, 0.5)
     elif(key == '3'):
-        covLin = float(input("Covariance linear: "))
-        covRad = float(input("Covariance Rotation: "))
+        covLin = float(raw_input("Covariance linear: "))
+        covRad = float(raw_input("Covariance Rotation: "))
         print("Updating initpose with covariannce linear: %.1f Rotation: %.1f"%(covLin, covRad))
         reinitPose(covLin, covRad)
     elif(key == "4"):
@@ -174,7 +175,7 @@ while not rospy.is_shutdown():
         print("Peforming AMCL no motion Update......")
         amclNoMotionUpdate()
     elif(key == "6"):
-        loopNumber = int(input("Number of loops: "))
+        loopNumber = int(raw_input("Number of loops: "))
         for i in range(loopNumber):
             print("peform AMCL No motion Update %d"%(i))
             amclNoMotionUpdate()
