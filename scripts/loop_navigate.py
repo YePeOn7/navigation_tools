@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import rospy
 import csv
 import os
@@ -16,7 +17,7 @@ import sys, select, termios, tty
 CALIBRATION_LOOP_NUMBER = 50
 
 fileDirPath = os.path.dirname(__file__) + "/../waypoints"
-filePath = f"{fileDirPath}/waypoints.txt"
+filePath = fileDirPath+"/waypoints.txt"
 waypointList = []
 numberOfWayPoint = 0
 currentWaypointGoalIndex = 0
@@ -30,7 +31,7 @@ covarianceSum = 0
 covarianceTh = 0
 
 referenceFrame = "map"              # use for AMCL update
-robotBaseFrame = "base_footprint"   # use for AMCL update
+robotBaseFrame = "robot_footprint"   # use for AMCL update
 
 with open(filePath, 'r') as csvFile:
     csvData = csv.reader(csvFile, delimiter = ',')
@@ -123,11 +124,11 @@ def calibrate(loopNumber, mode = 0):
             time.sleep(0.1)
         reinitPose(0.05, 0.0)
         
-def rms(array:list):
+def rms(array):
     array = np.array(array)
     rms = (np.sum(array**2)/len(array))**0.5
 
-def callbackAMCLUpdate(msgs:PoseWithCovarianceStamped):
+def callbackAMCLUpdate(msgs):
     global needCalibratePositionStatus
     global covarianceSum
 
@@ -135,7 +136,7 @@ def callbackAMCLUpdate(msgs:PoseWithCovarianceStamped):
     covarianceSum = rms(covariance)
     needCalibratePositionStatus = covarianceSum > covarianceTh
     
-def callbackParticlecloudUpdate(msgs:PoseArray):
+def callbackParticlecloudUpdate(msgs):
     global numberOfPoseArray
     numberOfPoseArray = len(msgs.poses)
 
@@ -153,10 +154,10 @@ def generateGoal(x, y, yaw):
 
     return goal
 
-def getGoalStatus(client:actionlib.SimpleActionClient):
+def getGoalStatus(client):
     return client.get_state()
 
-def setGoal(client:actionlib.SimpleActionClient, x, y, yaw):
+def setGoal(client, x, y, yaw):
     goal = generateGoal(x,y,yaw)
 
     # t = time.time()
@@ -169,7 +170,7 @@ def setGoal(client:actionlib.SimpleActionClient, x, y, yaw):
         client.send_goal(goal)
         status = getGoalStatus(client)
 
-def cancelGoal(client:actionlib.SimpleActionClient):
+def cancelGoal(client):
     client.wait_for_server()
     client.cancel_all_goals()
 
