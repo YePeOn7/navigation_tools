@@ -1,4 +1,4 @@
-from numpy import save
+#!/usr/bin/env python
 import rospy
 import sys, select, termios, tty
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
@@ -14,7 +14,7 @@ orientation = None
 positionX = None
 positionY = None
 referenceFrame = "/map"
-robotBaseFrame = "/base_footprint"
+robotBaseFrame = "/robot_footprint"
 stateSaveUse2DEstimate = False
 stateNewPosition = False
 currentPath = os.path.dirname(__file__)
@@ -23,18 +23,18 @@ class logger():
     def __init__(self, filename):
         self.fileName = filename
         self.fileDirPath = os.path.dirname(__file__) + "/../waypoints"
-        self.filePath = f"{self.fileDirPath}/{self.fileName}"
+        self.filePath = self.fileDirPath+"/"+self.fileName
         if(not os.path.exists(self.fileDirPath)):
             os.makedirs(self.fileDirPath)
         self.write('', end='')
-        print(f"Waypoint data will be saved on this path:")
+        print("Waypoint data will be saved on this path:")
         print(self.filePath)
         print("")
 
     def write(self, data, mode = 'a', end='\n'):
         data = str(data)
         with open(self.filePath, mode = mode) as f:
-            f.write(f"{data}{end}")
+            f.write(data+end)
 
     def clear(self):
         with open(self.filePath, mode = 'w') as f:
@@ -58,7 +58,7 @@ def getKey(key_timeout):
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
     return key
 
-def callbackInitialPose(msg:PoseWithCovarianceStamped):
+def callbackInitialPose(msg):
     global orientation
     global positionX
     global positionY
@@ -112,17 +112,23 @@ def loopUpdateRobotLocation():
 def showOption():
     print("\nOption:")
     print("0: exit")
-    print("1: append current robot position into waypoint file")
-    print("2: 2D Estimate Mode")
-    print("3: clear waypoint data value")
-    print("4: view current saved waypoint data")
+    print("1: Append current robot position into waypoint file")
+    print("2: 2D Pose Estimate Append Mode")
+    print("3: Clear waypoint data value")
+    print("4: View current saved waypoint data")
+
+def flushInputStream():
+    termios.tcflush(sys.stdin, termios.TCIOFLUSH)
 
 def saveOption(x, y, w):
     print("%f %f %f"%(x,y,w))
-    respond = input("Save current location?(y/n) ")
+
+    respond = raw_input("Save current location?(y/n) ")
+    print(type(respond))
+    print(respond)
     quitStatus = False
     if respond == 'y' or respond == 'Y':
-        respond = input("Enable rotation calibration?(y/n): ")
+        respond = raw_input("Enable rotation calibration?(y/n): ")
         if respond == 'y' or respond == 'Y':
             doCalibration = 1
         elif respond == 'n' or respond == 'N':
@@ -132,7 +138,7 @@ def saveOption(x, y, w):
             quitStatus = True
 
         if not quitStatus:
-            respond = input("Sanitized?(y/n): ")
+            respond = raw_input("Sanitized?(y/n): ")
             if respond == 'Y' or respond == 'y':
                 doSanitize = 1
             elif respond == 'N' or respond == 'n':
@@ -170,9 +176,13 @@ while not rospy.is_shutdown():
             key = getKey(0.01)
             if key == 'q':
                 break
+            elif key == "\x03":
+                print("Byeeee......")
+                exit(0)
 
             if(stateNewPosition):
                 saveOption(positionX, positionY, orientation)
+                print("\nPlease add another points or press q to back to main option...")
                 stateNewPosition = False
 
     elif key == '3':
@@ -186,5 +196,6 @@ while not rospy.is_shutdown():
     elif (key == '\x03' or key == '0'): 
         print("Bye .....")
         break
-
+    
+    print("Show option heree")
     showOption()
