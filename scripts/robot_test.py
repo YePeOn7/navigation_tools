@@ -1,4 +1,4 @@
-from numpy import rate
+#!/usr/bin/env python
 import sys
 import rospy
 from geometry_msgs.msg import Twist
@@ -9,7 +9,7 @@ import time
 
 rospy.init_node("robot_test")
 referenceFrame = "/odom"
-robotBaseFrame = "/base_footprint"
+robotBaseFrame = "/robot_footprint"
 robotStartFrame = "/start_frame"
 
 orientation = 0
@@ -169,7 +169,7 @@ def moveRotate(angleRef, maxSpeed = 1, timeOut = 5):
 
         twistData.angular.z = speedW
         velPub.publish(twistData)
-        print(f"speed: {speedW:.2f} sp angle: {angleRef:.2f} Rotation: {currentRotation:.2f}")
+        print("speed: %.2f sp angle: %.2f Rotation: %.2f"%(speedW, angleRef, currentRotation))
 
         if abs(currentRotation - angleRef) < 0.5:
             if time.time() - pidTime > timeOut:
@@ -191,7 +191,7 @@ def setOrientation(angleRef, maxSpeed = 1, timeOut = 5):
 
         twistData.angular.z = speedW
         velPub.publish(twistData)
-        print(f"Speed: {speedW:.2f} Current angle: {w:.2f}")
+        print("Speed: %.2f Current angle: %.2f"%(speedW, w))
 
         if abs(w - angleRef) < 0.5:
             if time.time() - pidTime > timeOut:
@@ -243,6 +243,7 @@ def updateLinear():
     return 0
 
 def moveLinear(distance, maxSpeed = 0.5, timeOut = 5, tolerance = 0.02):
+    global I_linear
     tfTime = lastTime = time.time()
     getStartFrameTransform()
     while not rospy.is_shutdown():
@@ -254,7 +255,7 @@ def moveLinear(distance, maxSpeed = 0.5, timeOut = 5, tolerance = 0.02):
         currentTime = time.time()
         speedX = pidLinear(distance, x, currentTime - lastTime, -maxSpeed, maxSpeed, 0.05, 0.01)
         setSpeed(speedX, 0)
-        print(f"target: {distance} current x: {x:.2f} speed:{speedX:.2f}")
+        print("target: %.2f current x: %.2f speed: %.2f"%(distance, x, speedX))
 
         if abs(x - distance) < tolerance:
             if time.time() - pidTime > timeOut:
@@ -278,22 +279,22 @@ while not rospy.is_shutdown():
         print("1: Set Orientation")
         print("2: Rotate")
         print("3: Set Linear Movement")
-        mode = input("Select Mode: ")
+        mode = raw_input("Select Mode: ")
 
         if mode == "0":
             print("Bye...")
             break
         if mode == "1":
-            spOrientation = float(input("Orientation (range from -180 to 180): "))
-            maxSpeed = float(input("Rotation speed: "))
+            spOrientation = float(raw_input("Orientation (range from -180 to 180): "))
+            maxSpeed = float(raw_input("Rotation speed: "))
             state = 1
         elif mode == "2":
-            numberOfRotation = float(input("Number of rotation: "))
-            maxSpeed = float(input("Rotation speed: "))
+            numberOfRotation = float(raw_input("Number of rotation: "))
+            maxSpeed = float(raw_input("Rotation speed: "))
             state = 2
         elif mode == "3":
-            distanceSp = float(input("Distance: "))
-            maxSpeed = float(input("Linear Speed: "))
+            distanceSp = float(raw_input("Distance: "))
+            maxSpeed = float(raw_input("Linear Speed: "))
             state = 3
 
     elif state == 1:
