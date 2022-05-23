@@ -1,4 +1,4 @@
-from curses.ascii import DEL
+#!/usr/bin/env python
 import time
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sensor_msgs.msg import Imu
@@ -6,7 +6,8 @@ import math
 
 import rospy
 
-IMU_TOPIC = "imu"
+DEBUG = False
+IMU_TOPIC = "mcu_imu"
 CORRECTED_IMU_TOPIC = "corrected_imu"
 ENCODER_TOPIC = "encoder"
 
@@ -18,7 +19,7 @@ correctedYaw = 0
 
 rospy.init_node("sensor_corrector")
 
-def callbackIMU(msg:Imu):
+def callbackIMU(msg):
     global rotation
     global previousYaw
     global correctedYaw
@@ -52,7 +53,8 @@ def callbackIMU(msg:Imu):
     correctedYaw = temp
     correctedYawRadian = math.radians(correctedYaw)
     correctedQuaternion = quaternion_from_euler(euler[0], euler[1], correctedYawRadian)
-    print("yaw: %.2f corrected: %.2f rot: %.2f" % (yaw, correctedYaw, rotation))
+    if DEBUG:
+        print("yaw: %.2f corrected: %.2f rot: %.2f" % (yaw, correctedYaw, rotation))
 
     IMU_corrected = IMU_original
     IMU_corrected.orientation.x = correctedQuaternion[0]
@@ -65,10 +67,10 @@ def callbackIMU(msg:Imu):
 def callbackRotary():
     pass
 
-pubCorrectedIMU = rospy.Publisher(CORRECTED_IMU_TOPIC, Imu, queue_size=100)
-subIMU = rospy.Subscriber(IMU_TOPIC, Imu, callbackIMU)
+if __name__=="__main__":
+    pubCorrectedIMU = rospy.Publisher(CORRECTED_IMU_TOPIC, Imu, queue_size=100)
+    subIMU = rospy.Subscriber(IMU_TOPIC, Imu, callbackIMU)
 
+    rospy.spin()
 
-rospy.spin()
-# while not rospy.is_shutdown():
    
