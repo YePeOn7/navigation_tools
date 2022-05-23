@@ -175,7 +175,7 @@ def cancelGoal(client):
     client.cancel_all_goals()
 
 def setRobotSpeed(linear, rotation):
-    cmdVelPub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
+    cmdVelPub = rospy.Publisher("cmd_vel", Twist, queue_size=1000)
     data = Twist()
 
     data.linear.x = linear
@@ -185,6 +185,8 @@ def setRobotSpeed(linear, rotation):
 
 def sanitize():
     print("Sanitizing.......")
+    setRobotSpeed(0,0) # need this to make next move directly move
+    time.sleep(0.5)
     setRobotSpeed(0,1)
     time.sleep(2)
     setRobotSpeed(0,-1)
@@ -199,8 +201,9 @@ def clearCostmap():
     
 def showOption():
     print("\n<------ Option ------->")
-    print("0: exit")
-    print("1: start navigation")
+    print("0: Exit")
+    print("1: Start navigation")
+    print("2: Test sanitizing function")
 
 rospy.init_node("loop_navigate")
 movebaseClient = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -242,6 +245,8 @@ while not rospy.is_shutdown():
                                                                     currentwayPointGoal[0],
                                                                     currentwayPointGoal[1],
                                                                     currentwayPointGoal[2]))
+        elif key == '2':
+            sanitize()
         elif(key == '0' or key == '\x03'):
             print("Bye.....")
             break
