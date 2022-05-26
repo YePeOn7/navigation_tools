@@ -7,11 +7,11 @@ import math
 import rospy
 
 DEBUG = False
-IMU_TOPIC = "mcu_imu"
+IMU_TOPIC = "imu/data"
 CORRECTED_IMU_TOPIC = "corrected_imu"
 ENCODER_TOPIC = "encoder"
 
-IMU_YAW_CORRECTOR_GAIN = 0.027777778
+IMU_YAW_CORRECTOR_GAIN = -0.01
 
 rotation = 0
 previousYaw = 0

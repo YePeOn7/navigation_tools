@@ -254,6 +254,24 @@ while not rospy.is_shutdown():
     elif stateNav == 1: # navigating to the goal
         if goalState == 3 and time.time() - lastTime > 5:
             stateNav = 100 # do sanitize
+        elif goalState == 4: # goal can't be reached
+            print("The goal can't be reached.. Go to next goal")
+            currentWaypointGoalIndex = (currentWaypointGoalIndex + 1)%len(waypointList)
+            currentwayPointGoal = waypointList[currentWaypointGoalIndex]
+            currentCalibrationOnGoal = int(currentwayPointGoal[3])
+            currentSanitizingOnGoal = int(currentwayPointGoal[4])
+            print("Current waypoint on: <%d> %.2f %.2f %.2f" % (currentWaypointGoalIndex, 
+                                                                currentwayPointGoal[0],
+                                                                currentwayPointGoal[1],
+                                                                currentwayPointGoal[2]))
+
+            setGoal(movebaseClient,
+                    currentwayPointGoal[0],
+                    currentwayPointGoal[1],
+                    currentwayPointGoal[2])
+            
+            stateNav = 10
+            lastTime = time.time()
 
     elif stateNav == 10: # loop several in this state to chcek if robot really receive the goal target
         if time.time() - lastTime < 2 and goalState == 3:
