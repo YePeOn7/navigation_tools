@@ -15,6 +15,11 @@ import math
 import sys, select, termios, tty
 
 CALIBRATION_LOOP_NUMBER = 50
+RECOVERY_LINEAR = -0.3   #in m
+RECOVERY_ANGULAR = 180  #in degree
+RECOVERY_LINEAR_SPEED = 0.3
+RECOVERY_ANGULAR_SPEED = 0.3
+RECOVERY_MAX_RETRY = 3
 
 fileDirPath = os.path.dirname(__file__) + "/../waypoints"
 filePath = fileDirPath+"/waypoints.txt"
@@ -32,12 +37,268 @@ covarianceTh = 0
 
 referenceFrame = "map"              # use for AMCL update
 robotBaseFrame = "robot_footprint"   # use for AMCL update
+odomFrame = "odom"
+robotStartFrame = "start_frame"    # use when we want to use pid movement
+
+retry = 0
+
+orientation = 0
+
+last_angle = 0
+error_angle = 0
+kp_rotation = 0.05
+ki_rotation = 0.005
+kd_rotation = 0.01
+I_rotation = 0
+last_error_rotation = 0
+
+last_linear = 0
+error_linear = 0
+kp_linear = 0.5
+ki_linear = 0.01
+kd_linear = 0.1
+I_linear = 0
+last_error_linear = 0
+
+startFrameLinear = 0
+startFrameQuaternion = 0
 
 with open(filePath, 'r') as csvFile:
     csvData = csv.reader(csvFile, delimiter = ',')
     waypointList = np.asarray(list(csvData), dtype = float)
     print("\nWaypoint data:")
     print(waypointList)
+
+def setRobotSpeed(linear, rotation):
+    cmdVelPub = rospy.Publisher("cmd_vel", Twist, queue_size=1000)
+    data = Twist()
+
+    data.linear.x = linear
+    data.angular.z = rotation
+
+    cmdVelPub.publish(data)
+
+def updateStartFrame():
+    global startFrameQuaternion
+    global startFrameLinear
+    
+    try:
+        tfBroadcaster.sendTransform(startFrameLinear, startFrameQuaternion, rospy.Time.now(), robotStartFrame, referenceFrame)
+        return 0
+
+    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+        print("update start frame fail")
+
+def pidRotation(sp, current, dt, min, max, th_I_top, th_I_bottom):      # use for setting orientation
+    global I_rotation
+    global last_error_rotation
+
+    I_limiter_gain = 0.8
+    error = getAngleError(sp, current)
+
+    P = kp_rotation * error
+    if abs(error) < th_I_top and abs(error) > th_I_bottom:
+        I_rotation += ki_rotation * error * dt
+    else:
+        I_rotation = 0
+    d = kd_rotation * (error - last_error_rotation) 
+
+    if I_rotation > I_limiter_gain * max: I_rotation = I_limiter_gain * max
+    elif I_rotation < I_limiter_gain * min: I_rotation = I_limiter_gain * min
+
+    PID = P + I_rotation + d
+
+    if PID > max: PID = max
+    elif PID < min: PID = min
+
+    last_error_rotation = error
+
+    return PID
+
+def pidLinear(sp, current, dt, min, max, th_I_top, th_I_bottom):
+    global I_linear
+    global last_error_linear
+
+    I_limiter_gain = 0.01
+
+    error = sp - current
+
+    P = kp_linear * error
+    if abs(error) < th_I_top and abs(error) > th_I_bottom:
+        I_linear += ki_linear * error * dt
+    else:
+        I_linear = 0
+    D = kd_linear * (error - last_error_linear) 
+
+    if I_linear > I_limiter_gain * max: I_linear = I_limiter_gain * max
+    elif I_linear < I_limiter_gain * min: I_linear = I_limiter_gain * min
+
+    PID = P + I_linear + D
+
+    if PID > max: PID = max
+    elif PID < min: PID = min
+
+    last_error_linear = error
+
+    return PID
+
+def getStartFrameTransform(timeOut = 5):
+    global startFrameLinear
+    global startFrameQuaternion
+
+    lastTime = time.time()
+    while not rospy.is_shutdown():
+        try:
+            (startFrameLinear, startFrameQuaternion) = tfListener.lookupTransform(referenceFrame, robotBaseFrame, rospy.Time(0))
+            tfBroadcaster.sendTransform(startFrameLinear, startFrameQuaternion, rospy.Time.now(), robotStartFrame, referenceFrame)
+            print("start frame has been initialized")
+            return 0
+
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            print("Initializing linear transform")
+
+        if time.time() - lastTime > timeOut:
+            print("failed to init linear transform")
+            return -1
+
+def updateOrientation():
+    global orientation
+    exceptionStatus = False
+    try:
+        (_,q) = tfListener.lookupTransform( referenceFrame, robotBaseFrame, rospy.Time(0))
+        euler = euler_from_quaternion(q)
+        orientation = math.degrees(euler[2])
+    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+        exceptionStatus = True
+
+    return orientation, exceptionStatus
+
+def getAngleError(sp, current):
+    error = sp - current
+    if error > 180:
+        error -= 360
+    elif error < -180:
+        error += 360
+    
+    return error
+
+def setOrientation(angleRef, maxSpeed = 1, timeOut = 5):
+    last_time = time.time()
+    velPub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
+    twistData = Twist()
+    while not rospy.is_shutdown():
+        w,_ = updateOrientation()
+        current_time = time.time()
+        speedW = pidRotation(angleRef, w, current_time - last_time, -maxSpeed, maxSpeed, 10, 0.01)
+        last_time = current_time
+
+        twistData.angular.z = speedW
+        velPub.publish(twistData)
+        print("Speed: %.2f Current angle: %.2f"%(speedW, w))
+
+        if abs(w - angleRef) < 0.5:
+            if time.time() - pidTime > timeOut:
+                break
+        else:
+            pidTime = time.time()
+
+        time.sleep(0.02)
+
+def updateLinear():
+    try:
+        (l,_) = tfListener.lookupTransform(robotStartFrame, robotBaseFrame, rospy.Time(0))
+        x = l[0]
+        # print(l)
+        return x
+    except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+        pass
+    
+    return 0
+
+def moveLinear(distance, maxSpeed = 0.5, timeOut = 5, tolerance = 0.02):
+    global I_linear
+    tfTime = lastTime = time.time()
+    getStartFrameTransform()
+    while not rospy.is_shutdown():
+        if time.time() - tfTime > 0.01:
+            updateStartFrame()
+            tfTime = time.time()
+
+        x = updateLinear()
+        currentTime = time.time()
+        speedX = pidLinear(distance, x, currentTime - lastTime, -maxSpeed, maxSpeed, 0.05, 0.01)
+        setRobotSpeed(speedX, 0)
+        # print("target: %.2f current x: %.2f speed: %.2f"%(distance, x, speedX))
+
+        if abs(x - distance) < tolerance:
+            if time.time() - pidTime > timeOut:
+                I_linear = 0
+                break
+        else:
+            pidTime = time.time()
+
+        time.sleep(0.001)
+
+def pidMoveRotate(sp, current, dt, min, max, th_I_top, th_I_bottom):    # use for setting rotation
+    global I_rotation
+    global last_error_rotation
+
+    I_limiter_gain = 0.8
+
+    error = sp - current
+
+    P = kp_rotation * error
+    if abs(error) < th_I_top and abs(error) > th_I_bottom:
+        I_rotation += ki_rotation * error * dt
+    else:
+        I_rotation = 0
+    d = kd_rotation * (error - last_error_rotation) 
+
+    if I_rotation > I_limiter_gain * max: I_rotation = I_limiter_gain * max
+    elif I_rotation < I_limiter_gain * min: I_rotation = I_limiter_gain * min
+
+    PID = P + I_rotation + d
+
+    if PID > max: PID = max
+    elif PID < min: PID = min
+
+    last_error_rotation = error
+
+    return PID
+
+def moveRotate(angleRef, maxSpeed = 1, timeOut = 5):
+    currentRotation = 0
+    last_w = 0
+    velPub = rospy.Publisher("cmd_vel", Twist, queue_size=10)
+    twistData = Twist()
+
+    while 1:
+        last_w, ex = updateOrientation()
+        if not ex: break
+
+    last_time = time.time()
+    while not rospy.is_shutdown():
+        w, _ = updateOrientation()
+
+        delta = getAngleError(w, last_w)
+        currentRotation += delta
+        last_w = w
+
+        current_time = time.time()
+        speedW = pidMoveRotate(angleRef, currentRotation, current_time - last_time, -maxSpeed, maxSpeed, 10, 0.01)
+        last_time = current_time
+
+        twistData.angular.z = speedW
+        velPub.publish(twistData)
+        # print("speed: %.2f sp angle: %.2f Rotation: %.2f"%(speedW, angleRef, currentRotation))
+
+        if abs(currentRotation - angleRef) < 0.5:
+            if time.time() - pidTime > timeOut:
+                break
+        else:
+            pidTime = time.time()
+
+        time.sleep(0.02)
 
 def getKey(key_timeout):
     tty.setraw(sys.stdin.fileno())
@@ -118,7 +379,7 @@ def calibrate(loopNumber, mode = 0):
             amclNoMotionUpdate()
             time.sleep(0.1)
 
-        reinitPose(0.1, 0.1)
+        reinitPose(0.2, 0.1)
         for i in range(loopNumber):
             amclNoMotionUpdate()
             time.sleep(0.1)
@@ -174,15 +435,6 @@ def cancelGoal(client):
     client.wait_for_server()
     client.cancel_all_goals()
 
-def setRobotSpeed(linear, rotation):
-    cmdVelPub = rospy.Publisher("cmd_vel", Twist, queue_size=1000)
-    data = Twist()
-
-    data.linear.x = linear
-    data.angular.z = rotation
-
-    cmdVelPub.publish(data)
-
 def sanitize():
     print("Sanitizing.......")
     setRobotSpeed(0,0) # need this to make next move directly move
@@ -204,8 +456,43 @@ def showOption():
     print("0: Exit")
     print("1: Start navigation")
     print("2: Test sanitizing function")
+    print("3: Test recovery behaviour")
+
+def setGoalByIndex(index):
+    global currentCalibrationOnGoal
+    global currentSanitizingOnGoal
+    global currentwayPointGoal
+
+    currentwayPointGoal = waypointList[index]
+    currentCalibrationOnGoal = int(currentwayPointGoal[3])
+    currentSanitizingOnGoal = int(currentwayPointGoal[4])
+    if len(currentwayPointGoal) != 0:
+        setGoal(movebaseClient,
+                currentwayPointGoal[0],
+                currentwayPointGoal[1],
+                currentwayPointGoal[2])
+        return 0
+    return 1 # the way point data is not correct
+
+def nextGoal():
+    global currentWaypointGoalIndex
+    
+    currentWaypointGoalIndex = (currentWaypointGoalIndex+1)%len(waypointList)
+    print("Current waypoint on: <%d> %.2f %.2f %.2f" % (currentWaypointGoalIndex, 
+                                                            currentwayPointGoal[0],
+                                                            currentwayPointGoal[1],
+                                                            currentwayPointGoal[2]))
+    setGoalByIndex(currentWaypointGoalIndex)
+
+
+def recoveryBehaviour():
+    print("Recovering......")
+    moveLinear(RECOVERY_LINEAR, RECOVERY_LINEAR_SPEED, 2, 0.05)
+    moveRotate(RECOVERY_ANGULAR, RECOVERY_ANGULAR_SPEED, 2)
 
 rospy.init_node("loop_navigate")
+tfListener = tf.TransformListener()
+tfBroadcaster = tf.TransformBroadcaster()
 movebaseClient = actionlib.SimpleActionClient("move_base", MoveBaseAction)
 tfListener = tf.TransformListener()
 settings = termios.tcgetattr(sys.stdin)
@@ -228,15 +515,7 @@ while not rospy.is_shutdown():
         key = getKey(None)
         if key == '1':
             clearCostmap()
-            currentwayPointGoal = waypointList[currentWaypointGoalIndex]
-            currentCalibrationOnGoal = int(currentwayPointGoal[3])
-            currentSanitizingOnGoal = int(currentwayPointGoal[4])
-            if len(currentwayPointGoal) != 0:
-                setGoal(movebaseClient,
-                        currentwayPointGoal[0],
-                        currentwayPointGoal[1],
-                        currentwayPointGoal[2])
-
+            if not setGoalByIndex(currentWaypointGoalIndex):
                 lastTime = time.time()
                 stateNav = 1
                 print("\nStart Navigating....")
@@ -247,6 +526,8 @@ while not rospy.is_shutdown():
                                                                     currentwayPointGoal[2]))
         elif key == '2':
             sanitize()
+        elif key == '3':
+            recoveryBehaviour()
         elif(key == '0' or key == '\x03'):
             print("Bye.....")
             break
@@ -254,32 +535,26 @@ while not rospy.is_shutdown():
     elif stateNav == 1: # navigating to the goal
         if goalState == 3 and time.time() - lastTime > 5:
             stateNav = 100 # do sanitize
-        elif goalState == 4: # goal can't be reached
-            print("The goal can't be reached.. Go to next goal")
-            currentWaypointGoalIndex = (currentWaypointGoalIndex + 1)%len(waypointList)
-            currentwayPointGoal = waypointList[currentWaypointGoalIndex]
-            currentCalibrationOnGoal = int(currentwayPointGoal[3])
-            currentSanitizingOnGoal = int(currentwayPointGoal[4])
-            print("Current waypoint on: <%d> %.2f %.2f %.2f" % (currentWaypointGoalIndex, 
-                                                                currentwayPointGoal[0],
-                                                                currentwayPointGoal[1],
-                                                                currentwayPointGoal[2]))
+            retry = 0
 
-            setGoal(movebaseClient,
-                    currentwayPointGoal[0],
-                    currentwayPointGoal[1],
-                    currentwayPointGoal[2])
+        elif goalState == 4: # goal can't be reached
+            retry+=1
+            if retry > RECOVERY_MAX_RETRY:
+                print("The goal can't be reached.. Go to next goal")
+                nextGoal()
+            
+            else:
+                print("Entering recovery mode on retry: %d"%(retry))
+                recoveryBehaviour()
+                setGoalByIndex(currentWaypointGoalIndex)
             
             stateNav = 10
             lastTime = time.time()
 
-    elif stateNav == 10: # loop several in this state to chcek if robot really receive the goal target
+    elif stateNav == 10: # loop several in this state to check if robot really receive the goal target
         if time.time() - lastTime < 2 and goalState == 3:
             print("set goal again")
-            setGoal(movebaseClient,
-                    currentwayPointGoal[0],
-                    currentwayPointGoal[1],
-                    currentwayPointGoal[2])
+            setGoalByIndex(currentWaypointGoalIndex)
 
         elif time.time() - lastTime > 2:
             stateNav = 1
@@ -295,20 +570,7 @@ while not rospy.is_shutdown():
         else:
             print("No calibration will be peformed in this goal location")
 
-        currentWaypointGoalIndex = (currentWaypointGoalIndex + 1)%len(waypointList)
-        currentwayPointGoal = waypointList[currentWaypointGoalIndex]
-        currentCalibrationOnGoal = int(currentwayPointGoal[3])
-        currentSanitizingOnGoal = int(currentwayPointGoal[4])
-        print("Current waypoint on: <%d> %.2f %.2f %.2f" % (currentWaypointGoalIndex, 
-                                                            currentwayPointGoal[0],
-                                                            currentwayPointGoal[1],
-                                                            currentwayPointGoal[2]))
-
-        setGoal(movebaseClient,
-                currentwayPointGoal[0],
-                currentwayPointGoal[1],
-                currentwayPointGoal[2])
-
+        nextGoal()
         lastTime = time.time()
         stateNav = 10
 

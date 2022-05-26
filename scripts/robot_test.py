@@ -65,7 +65,7 @@ def getAngleError(sp, current):
     
     return error
 
-def pidRotation(sp, current, dt, min, max, th_I_top, th_I_bottom):
+def pidRotation(sp, current, dt, min, max, th_I_top, th_I_bottom):      # use for setting orientation
     global I_rotation
     global last_error_rotation
 
@@ -91,7 +91,7 @@ def pidRotation(sp, current, dt, min, max, th_I_top, th_I_bottom):
 
     return PID
 
-def pidMoveRotate(sp, current, dt, min, max, th_I_top, th_I_bottom):
+def pidMoveRotate(sp, current, dt, min, max, th_I_top, th_I_bottom):    # use for setting rotation
     global I_rotation
     global last_error_rotation
 

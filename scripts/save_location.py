@@ -124,8 +124,6 @@ def saveOption(x, y, w):
     print("%f %f %f"%(x,y,w))
 
     respond = raw_input("Save current location?(y/n) ")
-    print(type(respond))
-    print(respond)
     quitStatus = False
     if respond == 'y' or respond == 'Y':
         respond = raw_input("Enable rotation calibration?(y/n): ")
@@ -197,5 +195,4 @@ while not rospy.is_shutdown():
         print("Bye .....")
         break
     
-    print("Show option heree")
     showOption()
