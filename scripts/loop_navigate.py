@@ -14,6 +14,9 @@ import dynamic_reconfigure.client
 import math
 import sys, select, termios, tty
 
+ENABLE_CALIBRATE_BEFORE_GOAL = True
+
+CALIBRATION_RADIUS_FROM_GOAL = 2    #in m
 CALIBRATION_LOOP_NUMBER = 50
 RECOVERY_LINEAR = -0.3   #in m
 RECOVERY_ANGULAR = 180  #in degree
@@ -62,6 +65,8 @@ last_error_linear = 0
 
 startFrameLinear = 0
 startFrameQuaternion = 0
+
+statusHasBeenCalibrateBeforeGoal = False
 
 with open(filePath, 'r') as csvFile:
     csvData = csv.reader(csvFile, delimiter = ',')
@@ -333,6 +338,7 @@ def getTfTransformPose2D(target, source):
             print("fail to get TF transfor")
 
 def reinitPose(covLin, covRot):
+    global pubInitialPose
     covariance = [covLin, 0.0, 0.0, 0.0, 0.0, 0.0, 
                     0.0, covLin, 0.0, 0.0, 0.0, 0.0, 
                     0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
@@ -355,7 +361,7 @@ def reinitPose(covLin, covRot):
     poseMsg.pose.pose.orientation.w = q[3]
     poseMsg.pose.covariance = covariance
 
-    pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
+    # pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
     pubInitialPose.publish(poseMsg)  
 
 def amclNoMotionUpdate():
@@ -476,6 +482,7 @@ def setGoalByIndex(index):
 
 def nextGoal():
     global currentWaypointGoalIndex
+    global statusHasBeenCalibrateBeforeGoal
     
     currentWaypointGoalIndex = (currentWaypointGoalIndex+1)%len(waypointList)
     print("Current waypoint on: <%d> %.2f %.2f %.2f" % (currentWaypointGoalIndex, 
@@ -483,6 +490,7 @@ def nextGoal():
                                                             currentwayPointGoal[1],
                                                             currentwayPointGoal[2]))
     setGoalByIndex(currentWaypointGoalIndex)
+    statusHasBeenCalibrateBeforeGoal = False
 
 
 def recoveryBehaviour():
@@ -490,7 +498,15 @@ def recoveryBehaviour():
     moveLinear(RECOVERY_LINEAR, RECOVERY_LINEAR_SPEED, 2, 0.05)
     moveRotate(RECOVERY_ANGULAR, RECOVERY_ANGULAR_SPEED, 2)
 
+def getDistanceFromGoal():
+    global currentwayPointGoal
+
+    [x, y, w] = getTfTransformPose2D(referenceFrame, robotBaseFrame)
+    distance = ((currentwayPointGoal[0]-x)**2+(currentwayPointGoal[1]-y)**2)**0.5
+    return distance
+
 rospy.init_node("loop_navigate")
+pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
 tfListener = tf.TransformListener()
 tfBroadcaster = tf.TransformBroadcaster()
 movebaseClient = actionlib.SimpleActionClient("move_base", MoveBaseAction)
@@ -533,6 +549,13 @@ while not rospy.is_shutdown():
             break
 
     elif stateNav == 1: # navigating to the goal
+        distanceFromGoal = getDistanceFromGoal()
+        # print(distanceFromGoal)
+        if distanceFromGoal < CALIBRATION_RADIUS_FROM_GOAL and ENABLE_CALIBRATE_BEFORE_GOAL and (not statusHasBeenCalibrateBeforeGoal):
+            print("Calibrating while moving")
+            reinitPose(1.5, 0)
+            statusHasBeenCalibrateBeforeGoal = True
+
         if goalState == 3 and time.time() - lastTime > 5:
             stateNav = 100 # do sanitize
             retry = 0
@@ -552,6 +575,7 @@ while not rospy.is_shutdown():
             lastTime = time.time()
 
     elif stateNav == 10: # loop several in this state to check if robot really receive the goal target
+        distanceFromGoal = getDistanceFromGoal()
         if time.time() - lastTime < 2 and goalState == 3:
             print("set goal again")
             setGoalByIndex(currentWaypointGoalIndex)
