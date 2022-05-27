@@ -70,6 +70,7 @@ def callbackParticlecloudUpdate(msgs):
   
 def getTfTransformPose2D(target, source):
     tfX = tfY = tfW = 0
+    startTime = time.time()
 
     while 1:
         try:
@@ -80,7 +81,9 @@ def getTfTransformPose2D(target, source):
             return [tfX, tfY, tfW]
 
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            print("fail to get TF transfor")
+            if(time.time() > 3):
+                print("fail to get TF transfor")
+                return -1
 
 def amclNoMotionUpdate():
     rospy.wait_for_service('request_nomotion_update')
@@ -138,6 +141,9 @@ def showOption():
     print("7: Update alpha1 and alpha2: 0.1")
     print("8: Update alpha1 and alpha2: 0.0")
     print("9: Clear costmap")
+    print("a: Calibrate Linear only")
+    print("b: Calibrate Linear & Rotation")
+    print("c: Calibration custom")
 
 covarianceTh = rospy.get_param("~covariance_th", 0.2)
 pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
@@ -190,7 +196,29 @@ while not rospy.is_shutdown():
         print("odom_alpha1 and odom_alpha2 have been updated to 0.0")
     elif(key == "9"):
         clearCostmap()
-        
+    elif(key == 'a'):
+        print("Calibrating...")
+        reinitPose(1.5, 0)
+        for i in range(50):
+            print("peform AMCL No motion Update %d"%(i))
+            amclNoMotionUpdate()
+            time.sleep(0.1)
+    elif(key == 'b'):
+        print("Calibrating...")
+        reinitPose(1.5, 0.5)
+        for i in range(50):
+            print("peform AMCL No motion Update %d"%(i))
+            amclNoMotionUpdate()
+            time.sleep(0.1)
+    elif(key == 'c'):
+        covLin = float(raw_input("Covariance linear: "))
+        covRad = float(raw_input("Covariance Rotation: "))
+        print("Updating initpose with covariannce linear: %.1f Rotation: %.1f"%(covLin, covRad))
+        reinitPose(covLin, covRad)     
+        for i in range(50):
+            print("peform AMCL No motion Update %d"%(i))
+            amclNoMotionUpdate()
+            time.sleep(0.1)  
     elif (key == '\x03' or '0'):
         print("byeee....")
         # print(f"{key!r}")
