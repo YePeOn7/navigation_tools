@@ -19,8 +19,15 @@ covarianceTh = 0
 amclPose = PoseWithCovarianceStamped()
 amclPose2D = [0,0,0]
 tfListener = tf.TransformListener()
+tfBroadcaster = tf.TransformBroadcaster()
 referenceFrame = "map"
 robotBaseFrame = "robot_footprint"
+odomFrame = "odom"
+odomFrameReference = "odom_reference"
+
+odomReferenceLinearTransform = None
+odomReferenceRotationTransform = None
+
 dynamicReconfigureClient = dynamic_reconfigure.client.Client("amcl")
 
 def getKey(key_timeout):
@@ -68,6 +75,35 @@ def callbackParticlecloudUpdate(msgs):
     global numberOfPoseArray
     numberOfPoseArray = len(msgs.poses)
   
+def getTransform(target, source):
+    startTime = time.time()
+    while not rospy.is_shutdown():
+        try:
+            (l, r) = tfListener.lookupTransform(target, source, rospy.Time(0))
+            return (l,r)
+
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            if(time.time() - startTime > 3):
+                print("fail to get TF transfor")
+
+def setTransform(parent, child, linearTransform, rotationTransform):
+    startTime = time.time()
+    while not rospy.is_shutdown():
+        try:
+            tfBroadcaster.sendTransform(linearTransform, rotationTransform, rospy.Time.now(), child, parent)
+            return 0
+
+        except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            if(time.time() - startTime > 3):
+                print("set transform fail")
+                return 1
+
+def getOdomReferenceTransform():
+    pass
+
+def getOdomShift():
+    pass
+
 def getTfTransformPose2D(target, source):
     tfX = tfY = tfW = 0
     startTime = time.time()
@@ -81,7 +117,7 @@ def getTfTransformPose2D(target, source):
             return [tfX, tfY, tfW]
 
         except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-            if(time.time() > 3):
+            if(time.time() - startTime > 3):
                 print("fail to get TF transfor")
                 return -1
 
@@ -144,11 +180,13 @@ def showOption():
     print("a: Calibrate Linear only")
     print("b: Calibrate Linear & Rotation")
     print("c: Calibration custom")
+    print("d: Check AMCL shift")
 
 covarianceTh = rospy.get_param("~covariance_th", 0.2)
 pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
 rospy.Subscriber("amcl_pose", PoseWithCovarianceStamped, callbackAMCLUpdate)
 rospy.Subscriber("particlecloud", PoseArray, callbackParticlecloudUpdate)
+
 
 rate = rospy.Rate(1)
 settings = termios.tcgetattr(sys.stdin)
@@ -219,6 +257,9 @@ while not rospy.is_shutdown():
             print("peform AMCL No motion Update %d"%(i))
             amclNoMotionUpdate()
             time.sleep(0.1)  
+    elif(key == 'd'):
+        while not rospy.is_shutdown():
+            pass
     elif (key == '\x03' or '0'):
         print("byeee....")
         # print(f"{key!r}")
