@@ -271,6 +271,47 @@ state = 0
 
 # exit(0)
 
+def moveLinear2(distance, maxSpeed = 0.5, acc = 0.1, decc = 0.1, timeOut = 5, tolerance = 0.02):
+    tfTime = lastTime = time.time()
+    getStartFrameTransform()
+    speed = 0
+    stateAcc = 0 #0 acc, 1 decc
+    while not rospy.is_shutdown():
+        if time.time() - tfTime > 0.01:
+            updateStartFrame()
+            tfTime = time.time()
+
+        if not stateAcc:
+            speed += min(acc * 0.001, maxSpeed - speed)
+            if speed >= maxSpeed:
+                stateAcc = 1
+        else:
+            speed -= min(decc * 0.001, speed)
+            if speed <= 0:
+                stateAcc = 0
+
+        x = updateLinear()
+        currentTime = time.time()
+        speedX = pidLinear(distance, x, currentTime - lastTime, -speed, speed, 0.05, 0.01)
+        setSpeed(speedX, 0)
+        print("target: %.2f current x: %.2f speed:%.2f" % (distance,x,speedX))
+        # print("speed: %.2f max: %.2f state: %d" % (speed, maxSpeed, stateAcc))
+
+        if abs(x - distance) < tolerance:
+            if time.time() - pidTime > timeOut:
+                I_linear = 0
+                break
+        else:
+            pidTime = time.time()
+
+        time.sleep(0.001)
+
+state = 0
+# while not rospy.is_shutdown():
+#     initLinearTransform()
+
+# exit(0)
+
 while not rospy.is_shutdown():
     if state == 0:
         print("=== Mode ===")
@@ -278,6 +319,7 @@ while not rospy.is_shutdown():
         print("1: Set Orientation")
         print("2: Rotate")
         print("3: Set Linear Movement")
+        print("4: Set Linear Movementwith Acc/Dec")
         mode = input("Select Mode: ")
 
         if mode == "0":
@@ -295,6 +337,12 @@ while not rospy.is_shutdown():
             distanceSp = float(input("Distance: "))
             maxSpeed = float(input("Linear Speed: "))
             state = 3
+        elif mode == "4":
+            distanceSp = float(input("Distance: "))
+            maxSpeed = float(input("Linear Speed: "))
+            acc = float(input("Acceleration: "))
+            decc = float(input("Deceleration: "))
+            state = 4
 
     elif state == 1:
         setOrientation(spOrientation, maxSpeed)
@@ -308,5 +356,10 @@ while not rospy.is_shutdown():
 
     elif state == 3:
         moveLinear(distanceSp, maxSpeed)
+        print("Done!!")
+        state = 0
+
+    elif state == 4:
+        moveLinear2(distanceSp, maxSpeed, acc, decc)
         print("Done!!")
         state = 0
