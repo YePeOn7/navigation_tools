@@ -171,6 +171,7 @@ catkin_install_python(PROGRAMS
   scripts/save_location.py
   scripts/loop_navigate.py
   scripts/sensor_corrector.py
+  scripts/imu_publisher2.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
