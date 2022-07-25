@@ -53,3 +53,4 @@ dkms.conf
 waypoints/
 */tempCodeRunnerFile.py
 .vscode/*
+*/__pycache__/*
