@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 import rospy
 from std_srvs.srv import Empty
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseWithCovarianceStamped
 from move_base_msgs.msg import MoveBaseGoal, MoveBaseAction
 from tf.transformations import quaternion_from_euler, euler_from_quaternion
+import tf
 import actionlib
-
 import time
 import sys, select, termios, tty
 
-class base():
-    def __init__(self):
-        pass
 
 class Rosfun():
-    def __init__(self, nodeName):
-        rospy.init_node(nodeName)
-        self.base = base()
-
+    def __init__(self, tfMap = "/map", tfRobotBase = "base_footprint"):
         self.clearCostmapService = rospy.ServiceProxy("move_base/clear_costmaps", Empty)
         self.AMCLNoMotionUpdateService = rospy.ServiceProxy("request_nomotion_update", Empty)
         
@@ -31,6 +25,13 @@ class Rosfun():
         self.cmdVelData = Twist()
         while self.cmdVelPub.get_num_connections() == 0: # wait the connenction ready
             pass
+
+        self.poseMsg = PoseWithCovarianceStamped()
+        self.pubInitialPose = rospy.Publisher("initialpose", PoseWithCovarianceStamped, queue_size=1000)
+
+        self.tfListener = tf.TransformListener()
+        self.mapFrame = tfMap
+        self.robotBaseFrame = tfRobotBase
     
     def setRobotSpeed(self, linear, rotation):
         self.cmdVelData.linear.x = linear
@@ -57,30 +58,70 @@ class Rosfun():
         return self.movebaseClient.get_state()
 
     def setGoal(self, x, y, yaw):
-        goal = MoveBaseGoal()
-        goal.target_pose.header.frame_id="map"
-        goal.target_pose.header.stamp = rospy.Time.now()
-        goal.target_pose.pose.position.x = x
-        goal.target_pose.pose.position.y = y
+        self.goal.target_pose.header.frame_id="map"
+        self.goal.target_pose.header.stamp = rospy.Time.now()
+        self.goal.target_pose.pose.position.x = x
+        self.goal.target_pose.pose.position.y = y
         q = quaternion_from_euler(0,0,yaw)
-        goal.target_pose.pose.orientation.x = q[0]
-        goal.target_pose.pose.orientation.y = q[1]
-        goal.target_pose.pose.orientation.z = q[2]
-        goal.target_pose.pose.orientation.w = q[3]
+        self.goal.target_pose.pose.orientation.x = q[0]
+        self.goal.target_pose.pose.orientation.y = q[1]
+        self.goal.target_pose.pose.orientation.z = q[2]
+        self.goal.target_pose.pose.orientation.w = q[3]
 
-        # t = time.time()
         self.movebaseClient.wait_for_server()
-        # print(f"time to wait server: {time.time() - t}")
-
-        self.movebaseClient.send_goal(goal)
-        # status = self.getGoalStatus()
-        # while not (status == 0 or status == 1):
-        #     self.movebaseClient.send_goal(goal)
-        #     status = self.getGoalStatus(self.movebaseClient)
+        self.movebaseClient.send_goal(self.goal)
 
     def cancelGoal(self):
         self.movebaseClient.wait_for_server()
         self.movebaseClient.cancel_all_goals()
+
+    def getTfTransformPose2D(self, target, source, maxRetry = 50):
+        retry = 0
+        while 1:
+            try:
+                (l, r) = self.tfListener.lookupTransform(target, source, rospy.Time(0))
+                tfX = l[0]
+                tfY = l[1]
+                tfW = euler_from_quaternion(r)[2]
+                return [tfX, tfY, tfW]
+
+            except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+                print("fail to get TF transfor")
+                retry+=1
+                time.sleep(0.1)
+
+            if retry > maxRetry:
+                return [None, None, None]
+
+    def getDistanceFromGoal(self):
+        [x, y, _] = self.getTfTransformPose2D(self.mapFrame, self.robotBaseFrame)
+        distance = ((self.goal.target_pose.pose.position.x - x)**2 
+                    + (self.goal.target_pose.pose.position.y - y)**2)**0.5
+        return distance
+
+    def amclSpreadPoseArray(self, covLin, covRot):
+        covariance = [covLin, 0.0, 0.0, 0.0, 0.0, 0.0, 
+                        0.0, covLin, 0.0, 0.0, 0.0, 0.0, 
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 
+                        0.0, 0.0, 0.0, 0.0, 0.0, covRot]
+
+        [x, y, w] = self.getTfTransformPose2D(self.mapFrame, self.robotBaseFrame)
+        q = quaternion_from_euler(0,0,w)
+
+        self.poseMsg.header.frame_id = self.mapFrame
+        self.poseMsg.header.stamp = rospy.Time.now()
+        self.poseMsg.pose.pose.position.x = x
+        self.poseMsg.pose.pose.position.y = y
+        self.poseMsg.pose.pose.position.z = 0
+        self.poseMsg.pose.pose.orientation.x = q[0]
+        self.poseMsg.pose.pose.orientation.y = q[1]
+        self.poseMsg.pose.pose.orientation.z = q[2]
+        self.poseMsg.pose.pose.orientation.w = q[3]
+        self.poseMsg.pose.covariance = covariance
+
+        self.pubInitialPose.publish(self.poseMsg)  
 
 settings = termios.tcgetattr(sys.stdin)
 def getKey(key_timeout):
@@ -94,14 +135,17 @@ def getKey(key_timeout):
     return key
 
 def showOption():
-    print("****** Option *******")
+    print("\n****** Option *******")
     print("0: Exit")
     print("1: Clear Costmap")
     print("2: Set Goal")
-    print("3: Check goal status")
+    print("3: Cancel Goal")
+    print("4: Spread AMCL Pose Array")
+    print("5: AMCL No Motion Update")
 
 def main():
-    rf = Rosfun("rosfun")
+    rospy.init_node("rosfun")
+    rf = Rosfun()
     showOption()
     while not rospy.is_shutdown():
         key = getKey(None)
@@ -118,13 +162,16 @@ def main():
             goalW = int(input("goal w: "))
             rf.setGoal(goalX, goalY, goalW)
 
-        elif key == '3':
-            print("Press q to close...")
-            while 1:
-                st = rf.getGoalStatus()
-                print("goal status: %d"%st)
-                if getKey(0.5) == 'q':
-                    break
+        elif key == '3': #Cancel goal
+            rf.cancelGoal()
+        
+        elif key == '4': # spread AMCL pose array
+            covLin = float(input("Linear covariance: "))
+            covAng = float(input("Angular covariance: "))
+            rf.amclSpreadPoseArray(covLin, covAng)
+
+        elif key == '5':
+            rf.amclNoMotionUpdate()
 
         showOption()
 

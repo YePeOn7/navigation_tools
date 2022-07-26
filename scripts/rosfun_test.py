@@ -4,7 +4,8 @@ import rospy
 import time
 from actionlib_msgs.msg import GoalStatus
 
-rf = rosfun.Rosfun("test")
+rospy.init_node("rosfun_test")
+rf = rosfun.Rosfun()
 
 pos = {"x":[-3,-1, -1],
         "y":[1,1,2],
@@ -23,21 +24,10 @@ while not rospy.is_shutdown():
         time.sleep(0.05)
         
         goalStatus = rf.getGoalStatus()
-        print(f"index: {indexPosition} status: {goalStatus}")
+        distance = rf.getDistanceFromGoal()
+        print("index: %d status: %d distance: %.2f"%(indexPosition, goalStatus, distance))
         if goalStatus == GoalStatus.SUCCEEDED:
             indexPosition = (indexPosition +1) % 3
             rf.setGoal(pos['x'][indexPosition], 
                         pos['y'][indexPosition], 
                         pos['w'][indexPosition])
-            # state = 2
-    # elif state == 2:
-    #     time.sleep(0.5)
-        
-    #     goalStatus = rf.getGoalStatus()
-    #     print(f"state: {state} status: {goalStatus}")
-    #     if goalStatus == GoalStatus.SUCCEEDED:
-    #         # indexPosition = (indexPosition +1) % 2
-    #         rf.setGoal(pos['x'][0], 
-    #                     pos['y'][0], 
-    #                     pos['w'][0])
-    #         state = 1
